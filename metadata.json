@@ -1,0 +1,8 @@
+{
+  "name": "Remix CloakDeck",
+  "description": "Pro anti-detect browser with isolated profiles, HTTP/SOCKS5 proxy routing, live IP geolocation verification, and full device/browser fingerprint spoofing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

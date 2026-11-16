@@ -1,0 +1,85 @@
+name: Build Mobile APK & AAB
+
+on:
+  push:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Prepare keystores and config
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f my-upload-key.jks ]; then
+            keytool -genkeypair -v -keystore my-upload-key.jks \
+              -storepass cloakdeck123 -alias upload -keypass cloakdeck123 \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=CloakDeck,O=Mobile,C=US"
+          fi
+          touch .env
+
+      - name: Build Debug APK & Release APK/AAB
+        env:
+          GH_SECRET_STORE_PW: ${{ secrets.STORE_PASSWORD }}
+          GH_SECRET_KEY_PW: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          export STORE_PASSWORD="${GH_SECRET_STORE_PW:-cloakdeck123}"
+          export KEY_PASSWORD="${GH_SECRET_KEY_PW:-cloakdeck123}"
+          gradle :app:assembleDebug :app:assembleRelease :app:bundleRelease --no-daemon
+
+      - name: Package APK & AAB files
+        run: |
+          mkdir -p mobile-downloads
+          cp app/build/outputs/apk/debug/app-debug.apk mobile-downloads/CloakDeck-install-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk mobile-downloads/CloakDeck-install-release.apk
+          cp app/build/outputs/bundle/release/app-release.aab mobile-downloads/CloakDeck-release.aab
+
+      - name: Upload APK & AAB Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloakDeck-Mobile-APK-AAB
+          path: mobile-downloads/*
+          retention-days: 30
+
+      - name: Publish Direct Download Release (No ZIP needed on Mobile)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-mobile --yes --cleanup-tag || true
+          gh release create latest-mobile \
+            mobile-downloads/CloakDeck-install-debug.apk \
+            mobile-downloads/CloakDeck-install-release.apk \
+            mobile-downloads/CloakDeck-release.aab \
+            --title "CloakDeck Latest Mobile Build" \
+            --notes "Direct mobile download: tap CloakDeck-install-release.apk (or CloakDeck-install-debug.apk) to download and install directly on Android."
